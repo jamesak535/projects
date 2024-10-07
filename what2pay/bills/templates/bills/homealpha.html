@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bill Splitter</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        h1 {
+            margin-top: 20px;
+        }
+        .container {
+            display: flex;
+            justify-content: space-between;
+            width: 80%;
+            margin-top: 20px;
+        }
+        .image-section, .table-section {
+            flex: 1;
+            padding: 20px;
+        }
+        .image-section {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .image-section img {
+            max-width: 100%;
+            height: auto;
+            border: 1px solid #ddd;
+            padding: 10px;
+            background-color: #f9f9f9;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        table, th, td {
+            border: 1px solid black;
+        }
+        th, td {
+            padding: 10px;
+            text-align: center;
+        }
+        .button-section {
+            margin-top: 20px;
+            text-align: center;
+        }
+        #splitBillBtn {
+            padding: 10px 20px;
+            font-size: 16px;
+            cursor: pointer;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+        }
+        .upload-section {
+            margin-bottom: 20px;
+            text-align: center;
+        }
+        #uploadBtn {
+            padding: 10px 20px;
+            font-size: 16px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>Bill Splitter</h1>
+
+    <!-- Upload Section -->
+    <div class="upload-section">
+        <form method="POST" enctype="multipart/form-data">
+            {% csrf_token %}
+            <label for="billUpload">Upload Bill Image: </label>
+            <input type="file" id="billUpload" name="image" accept="image/*" required>
+            <button type="submit" id="uploadBtn">Upload</button>
+        </form>
+    </div>
+
+    <div class="container">
+        <!-- Image Section -->
+        <div class="image-section">
+            <h3>Uploaded Bill</h3>
+            {% if bill_image %}
+            <img src="{{ bill_image.url }}" alt="Uploaded Bill">
+            {% else %}
+            <p>No image uploaded yet.</p>
+            {% endif %}
+        </div>
+
+        <!-- Table Section -->
+        <div class="table-section">
+            <h3>Bill Items</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Item Number</th>
+                        <th>Item Name</th>
+                        <th>Item Price</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% if items %}
+                    {% for item in items %}
+                    <tr>
+                        <td>{{ item.number }}</td>
+                        <td>{{ item.name }}</td>
+                        <td>{{ item.price }}</td>
+                    </tr>
+                    {% endfor %}
+                    {% else %}
+                    <tr>
+                        <td colspan="3">No items to display</td>
+                    </tr>
+                    {% endif %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Split Bill Button -->
+    <div class="button-section">
+        <button id="splitBillBtn">Split the Bill</button>
+    </div>
+
+</body>
+</html>
+
+ 

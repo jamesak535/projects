@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Real-Time Editable Bill Items</title>
+    <style>
+        /* General styling */
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        h1 {
+            text-align: center;
+        }
+
+        /* Container for the upload and title */
+        .header-section {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+
+        /* Flexbox container to position the preview and table side by side */
+        .content-container {
+            display: flex;
+            justify-content: space-between;
+            width: 80%;
+            margin-top: 20px;
+        }
+
+        /* Preview box styling */
+        .preview-container {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: flex-start;
+            border: 2px solid black;
+            padding: 20px;
+            margin-right: 20px;
+        }
+
+        /* Image preview */
+        #image-preview {
+            max-width: 100%;
+            height: auto;
+            border: 1px solid black;
+            margin-top: 10px;
+        }
+
+        /* Table container */
+        .table-container {
+            flex: 2;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: flex-start;
+            border: 2px solid black;
+            padding: 20px;
+        }
+
+        /* Table styling */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        th, td {
+            border: 1px solid black;
+            padding: 10px;
+            text-align: center;
+        }
+
+        .edit-button {
+            margin-top: 10px;
+        }
+
+    </style>
+</head>
+<body>
+
+    <!-- Title and Upload Section -->
+    <div class="header-section">
+        <h1>Bill Items</h1>
+        <form id="uploadForm" method="POST" enctype="multipart/form-data">
+            {% csrf_token %}
+            <label for="billImage">Upload Bill Image:</label>
+            <input type="file" id="billImage" name="image" accept="image/*" onchange="previewImage(event)">
+            <button type="submit">Submit Image</button>
+        </form>
+    </div>
+
+    <!-- Main Content Section -->
+    <div class="content-container">
+
+        <!-- Preview Section -->
+        <div class="preview-container">
+            <h3>Preview</h3>
+            <img id="image-preview" src="{% if bill_image %}{{ bill_image.url }}{% endif %}" alt="No Image Uploaded Yet">
+        </div>
+
+        <!-- Interactive Table Section -->
+        <div class="table-container">
+            <h3>Table</h3>
+            <table id="billTable">
+                <thead>
+                    <tr>
+                        <th>Item Number</th>
+                        <th>Item Name</th>
+                        <th>Item Price</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in items %}
+                    <tr>
+                        <td>{{ item.number }}</td>
+                        <td contenteditable="true" oninput="updateItem(this, '{{ item.number }}', 'name')">{{ item.name }}</td>
+                        <td contenteditable="true" oninput="updateItem(this, '{{ item.number }}', 'price')">{{ item.price }}</td>
+                        <td><button type="button" onclick="deleteRow(this, '{{ item.number }}')">Delete</button></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+                <!-- Total Row (This row will always be the last row) -->
+                <tfoot>
+                    <tr>
+                        <td></td>
+                        <td><strong>Total</strong></td>
+                        <td id="totalPrice">0.00</td>
+                        <td></td>
+                    </tr>
+                </tfoot>
+            </table>
+            <button type="button" class="edit-button" onclick="addRow()">Add Row</button>
+        </div>
+
+    </div>
+
+    <!-- JavaScript Section -->
+    <script>
+        // Preview the uploaded image
+        function previewImage(event) {
+            const imagePreview = document.getElementById('image-preview');
+            imagePreview.src = URL.createObjectURL(event.target.files[0]);
+        }
+
+        // Function to handle image submission with AJAX
+        function submitImage() {
+            const formData = new FormData(document.getElementById('uploadForm'));
+
+            // Send the form data (including image) using AJAX
+            fetch("{% url 'home' %}", {
+                method: "POST",
+                headers: {
+                    'X-CSRFToken': '{{ csrf_token }}'
+                },
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    console.log('OCR result:', data.items);
+                    updateTable(data.items);  // Update table with new items
+                } else {
+                    console.error('Error uploading image:', data.error);
+                }
+            })
+            .catch(error => console.error('Error:', error));
+        }
+
+        // Function to dynamically update the table with new OCR items
+        function updateTable(items) {
+            const tableBody = document.getElementById('billTable').getElementsByTagName('tbody')[0];
+            tableBody.innerHTML = '';  // Clear the existing table rows
+
+            // Loop through the new items and add them to the table
+            items.forEach((item, index) => {
+                const newRow = tableBody.insertRow();
+
+                newRow.innerHTML = `
+                    <td>${index + 1}</td>
+                    <td contenteditable="true" oninput="updateItem(this, '${index + 1}', 'name')">${item.name}</td>
+                    <td contenteditable="true" oninput="updateItem(this, '${index + 1}', 'price')">${item.price}</td>
+                    <td><button type="button" onclick="deleteRow(this, '${index + 1}')">Delete</button></td>
+                `;
+        });
+
+        // Calculate total price from all rows and update the total row
+        function updateTotal() {
+            let total = 0;
+            const rows = document.getElementById('billTable').getElementsByTagName('tbody')[0].rows;
+            for (let i = 0; i < rows.length; i++) {
+                const priceCell = rows[i].cells[2].innerText;
+                total += parseFloat(priceCell) || 0;  // Avoid NaN for invalid prices
+            }
+            document.getElementById('totalPrice').innerText = total.toFixed(2);
+        }
+
+        // Update the item numbers dynamically and keep the rows above the total
+        function updateItemNumbers() {
+            const rows = document.getElementById('billTable').getElementsByTagName('tbody')[0].rows;
+            for (let i = 0; i < rows.length; i++) {
+                rows[i].cells[0].innerText = i + 1;  // Update the item number (1-based index)
+            }
+        }
+
+        // Update the table data in real-time when the user edits a cell
+        function updateItem(element, itemNumber, field) {
+            const value = element.innerText;
+
+            // Update the total whenever a price is updated
+            updateTotal();
+
+            // Prepare the data to be sent
+            const data = {
+                'item_number': itemNumber,
+                'field': field,
+                'value': value
+            };
+
+            // Send AJAX request to update the server
+            fetch('{% url "update_item" %}', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': '{{ csrf_token }}'
+                },
+                body: JSON.stringify(data)
+            })
+            .then(response => response.json())
+            .then(data => {
+                console.log('Success:', data);
+            })
+            .catch((error) => {
+                console.error('Error:', error);
+            });
+        }
+
+        // Add a new row
+        function addRow() {
+            const table = document.getElementById('billTable').getElementsByTagName('tbody')[0];
+            const rowCount = table.rows.length;
+            const newRow = table.insertRow(rowCount);  // Insert the new row above the total row
+
+            newRow.innerHTML = `
+                <td></td>
+                <td contenteditable="true" oninput="updateItem(this, '${rowCount + 1}', 'name')">New Item</td>
+                <td contenteditable="true" oninput="updateItem(this, '${rowCount + 1}', 'price')">0.00</td>
+                <td><button type="button" onclick="deleteRow(this, '${rowCount + 1}')">Delete</button></td>
+            `;
+
+            // Update item numbers and total after adding the row
+            updateItemNumbers();
+            updateTotal();
+        }
+
+        // Delete a row
+        function deleteRow(button, itemNumber) {
+            const row = button.parentElement.parentElement;
+            row.remove();
+
+            // Update item numbers and total after deleting the row
+            updateItemNumbers();
+            updateTotal();
+
+            // Send AJAX request to delete the item
+            fetch('{% url "delete_item" %}', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': '{{ csrf_token }}'
+                },
+                body: JSON.stringify({ 'item_number': itemNumber })
+            })
+            .then(response => response.json())
+            .then(data => {
+                console.log('Row deleted:', data);
+            })
+            .catch((error) => {
+                console.error('Error:', error);
+            });
+        }
+
+        // Call the updateTotal() function once at the start to initialize the total
+        updateTotal();
+    }
+    </script>
+</body>
+</html>
