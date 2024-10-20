@@ -1,8 +1,20 @@
-from django.shortcuts import render
-
-# Create your views here.
+from django.shortcuts import get_object_or_404, render
 from django.contrib.auth import authenticate, login
 from django.shortcuts import render, redirect
+import json
+from django.http import JsonResponse
+from django.views.decorators.csrf import csrf_exempt
+from django.shortcuts import render, redirect
+from .forms import BillUploadForm
+from .models import Bill, Item
+import pytesseract
+from PIL import Image
+import re
+from django.contrib.auth.models import User
+from django.contrib.auth.decorators import login_required
+from django.contrib.auth import logout
+from django.views.decorators.http import require_POST
+
 
 def login_view(request):
     if request.method == "POST":
@@ -16,13 +28,6 @@ def login_view(request):
             return render(request, 'login.html', {'error': 'Invalid login credentials'})
     return render(request, 'login.html')
 
-
-from django.shortcuts import render, redirect
-from .forms import BillUploadForm
-from .models import Bill
-import pytesseract
-from PIL import Image
-import re
 
 def parse_ocr_text(ocr_text):
     # print('hi')
@@ -131,49 +136,96 @@ def bill_upload_view(request):
 # def home(request):
 #     context = {}
 #     return render(request, "bills/home.html")
+# @login_required
+# def home(request):
+#     # print('hi')
+#     bill_image = None
+#     items = []
+
+#     if request.method == 'POST':
+#         # print('yo')
+#         form = BillUploadForm(request.POST, request.FILES)
+#         if form.is_valid():
+#             # print("very valid")
+#             bill = form.save(commit=False)
+#             # bill.user = request.user  # Assuming the user is logged in
+#             if request.user.is_authenticated:
+#                 bill.user = request.user
+#             else:
+#                 bill.user = None
+#             bill.save()
+
+#             bill_image = bill.image
+
+#             # Perform OCR on the uploaded image
+#             image = Image.open(bill.image.path)
+#             ocr_text = pytesseract.image_to_string(image)
+
+#             # print(ocr_text)
+
+#             # Parse the OCR text to extract items and prices
+#             items = parse_ocr_text(ocr_text)
+#         else:
+#             # print("not so valid")
+#             return redirect('login')
+#             # print(form.errors)
+#     else:
+        
+#         form = BillUploadForm()
+
+#     return render(request, 'bills/home.html', {
+#         'form': form,
+#         'bill_image': bill_image,
+#         'items': items
+#     })
 
 def home(request):
-    # print('hi')
     bill_image = None
     items = []
+    login_error = None
+    form = BillUploadForm()  # Initialize form here
 
     if request.method == 'POST':
-        # print('yo')
-        form = BillUploadForm(request.POST, request.FILES)
-        if form.is_valid():
-            print("very valid")
-            bill = form.save(commit=False)
-            bill.user = request.user  # Assuming the user is logged in
-            bill.save()
-
-            bill_image = bill.image
-
-            # Perform OCR on the uploaded image
-            image = Image.open(bill.image.path)
-            ocr_text = pytesseract.image_to_string(image)
-
-            # print(ocr_text)
-
-            # Parse the OCR text to extract items and prices
-            items = parse_ocr_text(ocr_text)
+        if 'login' in request.POST:
+            # Handle login
+            username = request.POST['username']
+            password = request.POST['password']
+            user = authenticate(request, username=username, password=password)
+            if user is not None:
+                login(request, user)
+                return redirect('home')  # Refresh the page after login
+            else:
+                login_error = 'Invalid login credentials'
         else:
-            # print("not so valid")
-            print(form.errors)
-    else:
-        
-        form = BillUploadForm()
+            # Handle bill upload
+            form = BillUploadForm(request.POST, request.FILES)
+            if form.is_valid():
+                bill = form.save(commit=False)
+                if request.user.is_authenticated:
+                    bill.user = request.user
+                else:
+                    bill.user = None
+                bill.save()
+
+                bill_image = bill.image
+
+                # Perform OCR on the uploaded image
+                image = Image.open(bill.image.path)
+                ocr_text = pytesseract.image_to_string(image)
+
+                # Parse the OCR text to extract items and prices
+                items = parse_ocr_text(ocr_text)
+            else:
+                print(form.errors)
 
     return render(request, 'bills/home.html', {
         'form': form,
         'bill_image': bill_image,
-        'items': items
+        'items': items,
+        'login_error': login_error
     })
 
 
-
-import json
-from django.http import JsonResponse
-from django.views.decorators.csrf import csrf_exempt
 
 @csrf_exempt
 def update_item(request):
@@ -219,3 +271,189 @@ def delete_item(request):
 
     return JsonResponse({'status': 'error'}, status=400)
 
+@csrf_exempt
+def save_bill(request):
+    if request.method == 'POST':
+        data = json.loads(request.body)
+        items_data = data.get('items', [])
+
+        # Assuming the user is logged in
+        bill = Bill(user=request.user)
+        bill.save()
+
+        # Save items
+        for item_data in items_data:
+            Item.objects.create(
+                bill=bill,
+                description=item_data['name'],
+                price=item_data['price']
+            )
+
+        return JsonResponse({'status': 'success', 'url': bill.get_absolute_url()})
+
+    return JsonResponse({'status': 'error', 'message': 'Invalid request method.'})
+
+def bill_detail(request, unique_id):
+    bill = get_object_or_404(Bill, unique_id=unique_id)
+
+    if request.user.is_authenticated and request.user not in bill.users.all():
+        bill.users.add(request.user)
+    #     bill.save()
+
+    items = bill.items.all()
+    users = bill.users.all()
+    # print(f"Users in bill: {users}")
+
+    return render(request, 'bills/bill_detail.html', {
+        'bill': bill,
+        'items': items,
+        'users': users,
+    })
+
+
+def sign_in(request):
+    if request.method == 'POST':
+        username = request.POST.get('username')
+        password = request.POST.get('password', '')
+
+        # Try to authenticate the user
+        user = authenticate(request, username=username, password=password)
+
+        if user is None:
+            # If user doesn't exist, create one
+            user = User.objects.create_user(username=username)
+            if password:
+                user.set_password(password)
+                user.save()
+                user = authenticate(request, username=username, password=password)
+            else:
+                # Authenticate without a password
+                user.backend = 'django.contrib.auth.backends.ModelBackend'
+
+        if user is not None:
+            login(request, user)
+            return redirect(request.GET.get('next', '/'))
+        else:
+            return render(request, 'sign_in.html', {'error': 'Authentication failed.'})
+
+    return render(request, 'sign_in.html')
+
+
+
+# @login_required
+# def toggle_item(request):
+#     if request.method == 'POST':
+#         data = json.loads(request.body)
+#         item_id = data.get('item_id')
+#         item = get_object_or_404(Item, id=item_id)
+#         user = request.user
+
+#         if user in item.buyers.all():
+#             # Unmark the item
+#             item.buyers.remove(user)
+#             action = 'unmarked'
+#         else:
+#             # Mark the item
+#             item.buyers.add(user)
+#             action = 'marked'
+
+#         return JsonResponse({'status': 'success', 'action': action})
+
+#     return JsonResponse({'status': 'error', 'message': 'Invalid request method.'})
+
+# def bill_updates(request, unique_id):
+#     bill = get_object_or_404(Bill, unique_id=unique_id)
+#     items = bill.items.all()
+#     items_data = []
+
+#     for item in items:
+#         buyers = [buyer.username for buyer in item.buyers.all()]
+#         items_data.append({
+#             'id': item.id,
+#             'buyers': buyers
+#         })
+
+#     return JsonResponse({'items': items_data})
+
+
+@require_POST
+def toggle_item(request):
+    data = json.loads(request.body)
+    item_id = data.get('item_id')
+    username = data.get('username')
+
+    item = get_object_or_404(Item, id=item_id)
+    user = get_object_or_404(User, username=username)
+    
+    if user in item.buyers.all():
+        item.buyers.remove(user)
+    else:
+        item.buyers.add(user)
+    
+    return JsonResponse({'status': 'success'})
+
+    # try:
+    #     item = Item.objects.get(id=item_id)
+    #     user = User.objects.get(username=username)
+        
+    #     if user in item.buyers.all():
+    #         item.buyers.remove(user)
+    #     else:
+    #         item.buyers.add(user)
+        
+    #     return JsonResponse({'status': 'success'})
+    # except (BillItem.DoesNotExist, User.DoesNotExist):
+    #     return JsonResponse({'status': 'error', 'message': 'Item or user not found'})
+
+def bill_updates(request, unique_id):
+    bill = get_object_or_404(Bill, unique_id=unique_id)
+    items = bill.items.all()
+    users = bill.users.all()
+    items_data = []
+
+    for item in items:
+        buyers = [buyer.username for buyer in item.buyers.all()]
+        items_data.append({
+            'id': item.id,
+            'buyers': buyers,
+            'price': str(item.price)  # Convert to string to ensure JSON serialization
+        })
+
+    return JsonResponse({
+        'items': items_data,
+        'total': str(bill.total_price()),
+        'users': [user.username for user in users]
+    })
+
+
+def logout_view(request):
+    logout(request)
+    return redirect(request.GET.get('next', '/'))
+
+
+
+# def bill_detail(request, unique_id):
+#     bill = get_object_or_404(Bill, unique_id=unique_id)
+#     items = bill.items.all()
+#     users = User.objects.filter(purchased_items__in=items).distinct()
+#     return render(request, 'bills/bill_detail.html', {
+#         'bill': bill,
+#         'items': items,
+#         'users': users,
+#     })
+
+
+@require_POST
+def toggle_item(request):
+    data = json.loads(request.body)
+    item_id = data.get('item_id')
+    username = data.get('username')
+    item = get_object_or_404(Item, id=item_id)
+    user = get_object_or_404(User, username=username)
+    
+    if user in item.buyers.all():
+        item.buyers.remove(user)
+    else:
+        item.buyers.add(user)
+    
+    return JsonResponse({'status': 'success'})

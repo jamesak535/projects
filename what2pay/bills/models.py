@@ -3,15 +3,41 @@ from django.db import models
 # Create your models here.
 from django.db import models
 from django.contrib.auth.models import User
+import uuid
+
+# class Bill(models.Model):
+#     user = models.ForeignKey(User, on_delete=models.CASCADE)
+#     image = models.ImageField(upload_to='bills/')
+#     created_at = models.DateTimeField(auto_now_add=True)
+#     unique_id = models.UUIDField(default=uuid.uuid4, editable=False, unique=True)
+
+
+#     def __str__(self):
+#         return f"Bill by {self.user.username if self.user else 'Anonymous'} at {self.created_at}"
+    
+#     def get_absolute_url(self):
+#         from django.urls import reverse
+#         return reverse('bill_detail', args=[str(self.unique_id)])
+
 
 class Bill(models.Model):
-    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    user = models.ForeignKey(User, on_delete=models.CASCADE, null=True, blank=True)
+    users = models.ManyToManyField(User, related_name='bills')
     image = models.ImageField(upload_to='bills/')
     created_at = models.DateTimeField(auto_now_add=True)
-
+    unique_id = models.UUIDField(default=uuid.uuid4, editable=False, unique=True)  # Remove unique=True for now
 
     def __str__(self):
         return f"Bill by {self.user.username if self.user else 'Anonymous'} at {self.created_at}"
+
+    def get_absolute_url(self):
+        from django.urls import reverse
+        return reverse('bill_detail', args=[str(self.unique_id)])
+    
+    def total_price(self):
+        return sum(item.price for item in self.items.all())
+
+
 
 class Item(models.Model):
     bill = models.ForeignKey(Bill, related_name='items', on_delete=models.CASCADE)
@@ -20,7 +46,10 @@ class Item(models.Model):
     buyers = models.ManyToManyField(User, related_name='purchased_items')
 
     def split_cost(self):
-        return self.price / self.buyers.count()
+        if self.buyers.count() > 0:
+            return self.price / self.buyers.count()
+        else:
+            return self.price  # Or handle the division by zero as appropriate
 
 
 

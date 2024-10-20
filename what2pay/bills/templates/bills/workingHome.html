@@ -87,28 +87,6 @@
     <!-- Title and Upload Section -->
     <div class="header-section">
         <h1>Bill Items</h1>
-        {% if user.is_authenticated %}
-            <p>Welcome, {{ user.username }}!</p>
-        {% else %}
-            <h2>Login</h2>
-            <form method="post">
-                {% csrf_token %}
-                <input type="hidden" name="login" value="true">
-                <div>
-                    <label for="username">Username:</label>
-                    <input type="text" name="username" required>
-                </div>
-                <div>
-                    <label for="password">Password:</label>
-                    <input type="password" name="password" required>
-                </div>
-                <button type="submit">Login</button>
-            </form>
-            {% if login_error %}
-                <p style="color: red;">{{ login_error }}</p>
-            {% endif %}
-        {% endif %}
-        
         <form id="uploadForm" method="POST" enctype="multipart/form-data">
             {% csrf_token %}
             <label for="billImage">Upload Bill Image:</label>
@@ -163,50 +141,8 @@
 
     </div>
 
-    <!-- Add this button at the center bottom -->
-    <div style="text-align: center; margin-top: 20px;">
-        <button type="button" onclick="splitBill()">Split Bill</button>
-    </div>
-
-
-
     <!-- JavaScript Section -->
     <script>
-
-    function splitBill() {
-        // Collect the current table data
-        const items = [];
-        const rows = document.querySelectorAll('#billTable tbody tr');
-        rows.forEach(row => {
-            const name = row.cells[1].innerText;
-            const price = parseFloat(row.cells[2].innerText) || 0;
-            items.push({ 'name': name, 'price': price });
-        });
-
-        // Send AJAX request to save the bill
-        fetch("{% url 'save_bill' %}", {
-            method: "POST",
-            headers: {
-                'X-CSRFToken': '{{ csrf_token }}',
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ 'items': items })
-        })
-        .then(response => response.json())
-        .then(data => {
-            if (data.status === 'success') {
-                // Redirect to the bill detail page
-                window.location.href = data.url;
-            } else {
-                console.error('Error saving bill:', data.message);
-            }
-        })
-        .catch(error => console.error('Error:', error));
-    }
-
-
-
-
     // Preview the uploaded image
     function previewImage(event) {
         const imagePreview = document.getElementById('image-preview');

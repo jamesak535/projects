@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <!-- Meta and CSS -->
+    <title>Split Bill</title>
+    <style>
+        /* Your CSS styling */
+
+        /* New styles for centering the table */
+        .table-container {
+            display: flex;
+            justify-content: center;
+            width: 100%;
+            overflow-x: auto;
+        }
+        #billItems {
+            margin: 0 auto;
+            border-collapse: collapse;
+        }
+        #billItems th, #billItems td {
+            padding: 10px;
+            border: 1px solid #ddd;
+            text-align: center;
+        }
+        .total-row {
+            font-weight: bold;
+            background-color: #f2f2f2;
+        }
+
+        td .checkmark {
+            color: green;
+            font-weight: bold;
+        }
+
+        td .dash {
+            color: #999;
+        }
+    </style>
+</head>
+<body>
+    <h1>Split Bill</h1>
+
+
+
+    <!-- Sign-In Form -->
+    {% if not request.user.is_authenticated %}
+    <div id="sign-in">
+        <h3>Sign In</h3>
+        <form method="post" action="{% url 'sign_in' %}?next={{ request.path }}">
+            {% csrf_token %}
+            <label for="username">Name:</label>
+            <input type="text" name="username" id="username" required>
+            <br>
+            <label for="password">Password (optional):</label>
+            <input type="password" name="password" id="password">
+            <br>
+            <button type="submit">Sign In</button>
+        </form>
+    </div>
+    {% else %}
+    <p>Welcome, {{ request.user.username }}! <a href="{% url 'logout' %}?next={{ request.path }}">Logout</a></p>
+    {% endif %}
+
+    <!-- Debug Information -->
+    <div style="background-color: #f0f0f0; padding: 10px; margin-bottom: 20px;">
+        <h3>Debug Information:</h3>
+        <p>Logged in user: {{ request.user.username }}</p>
+        <p>Is authenticated: {{ request.user.is_authenticated }}</p>
+        <p>Users in bill:</p>
+        <ul>
+        {% for user in users %}
+            <li>{{ user.username }}{% if user == request.user %} (You){% endif %}</li>
+        {% empty %}
+            <li>No users found in the bill</li>
+        {% endfor %}
+        </ul>
+        <p>Number of users: {{ users|length }}</p>
+        <p>Bill ID: {{ bill.id }}</p>
+        <p>Bill Unique ID: {{ bill.unique_id }}</p>
+    </div>
+
+    <!-- Bill Items -->
+    <div class="table-container">
+        <table id="billItems">
+            <thead>
+                <tr>
+                    <th>Item Name</th>
+                    <th>Price</th>
+                    {% for user in users %}
+                        <th>{{ user.username }}{% if user == request.user %} (You){% endif %}</th>
+                    {% endfor %}
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in items %}
+                <tr data-item-id="{{ item.id }}">
+                    <td>{{ item.description }}</td>
+                    <td>{{ item.price }}</td>
+                    {% for user in users %}
+                        <td>
+                            {% if user == request.user %}
+                                <input type="checkbox" 
+                                       {% if user in item.buyers.all %}checked{% endif %} 
+                                       onclick="toggleItem({{ item.id }}, '{{ user.username }}')"
+                                       id="checkbox-{{ item.id }}-{{ user.username }}">
+                                <label for="checkbox-{{ item.id }}-{{ user.username }}">Claim</label>
+                            {% else %}
+                                {% if user in item.buyers.all %}
+                                    <span class="checkmark">✓</span>
+                                {% else %}
+                                    <span class="dash">-</span>
+                                {% endif %}
+                            {% endif %}
+                        </td>
+                    {% endfor %}
+                </tr>
+                {% endfor %}
+                <tr class="total-row">
+                    <td>Total</td>
+                    <td id="totalPrice">{{ bill.total_price }}</td>
+                    {% for user in users %}
+                        <td id="total-{{ user.username }}">0.00</td>
+                    {% endfor %}
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <!-- JavaScript -->
+    <script>
+    // Add this at the beginning of your script
+    console.log('Current user:', '{{ request.user.username }}');
+    console.log('Is authenticated:', {{ request.user.is_authenticated|lower }});
+
+    function fetchUpdates() {
+        console.log('Fetching updates');  // Debug log
+        fetch("{% url 'bill_updates' unique_id=bill.unique_id %}")
+        .then(response => response.json())
+        .then(data => {
+            console.log('Received updates:', data);  // Debug log
+            data.items.forEach(itemData => {
+                const row = document.querySelector(`tr[data-item-id='${itemData.id}']`);
+                if (row) {
+                    // Update price
+                    row.querySelector('td:nth-child(2)').textContent = itemData.price;
+
+                    // Update buyers
+                    data.users.forEach((username, index) => {
+                        const cell = row.querySelector(`td:nth-child(${index + 3})`);
+                        if (cell) {
+                            if (username === '{{ request.user.username }}') {
+                                const checkbox = cell.querySelector('input[type="checkbox"]');
+                                if (checkbox) {
+                                    checkbox.checked = itemData.buyers.includes(username);
+                                }
+                            } else {
+                                cell.innerHTML = itemData.buyers.includes(username) ? 
+                                    '<span class="checkmark">✓</span>' : 
+                                    '<span class="dash">-</span>';
+                            }
+                        }
+                    });
+                }
+            });
+
+            // Update total price
+            document.getElementById('totalPrice').textContent = data.total;
+
+            calculateTotals();
+        })
+        .catch(error => console.error('Error fetching updates:', error));
+    }
+
+    function getUsernameByIndex(index) {
+        return [{% for user in users %}'{{ user.username }}'{% if not forloop.last %},{% endif %}{% endfor %}][index];
+    }
+
+    // Poll every 5 seconds
+    setInterval(fetchUpdates, 5000);
+
+    function toggleItem(itemId, username) {
+        console.log('Toggling item:', itemId, 'for user:', username);  // Debug log
+        fetch("{% url 'toggle_item' %}", {
+            method: 'POST',
+            headers: {
+                'X-CSRFToken': '{{ csrf_token }}',
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ 'item_id': itemId, 'username': username })
+        })
+        .then(response => response.json())
+        .then(data => {
+            console.log('Toggle response:', data);  // Debug log
+            if (data.status === 'success') {
+                fetchUpdates();
+            } else {
+                alert(data.message);
+            }
+        })
+        .catch(error => {
+            console.error('Error toggling item:', error);
+            alert('An error occurred while toggling the item. Please try again.');
+        });
+    }
+
+    function calculateTotals() {
+        let totalPrice = 0;
+        const userTotals = {};
+        {% for user in users %}
+        userTotals['{{ user.username }}'] = 0;
+        {% endfor %}
+
+        const rows = document.querySelectorAll('#billItems tbody tr:not(.total-row)');
+        rows.forEach(row => {
+            const price = parseFloat(row.cells[1].innerText) || 0;
+            totalPrice += price;
+
+            const checkedUsers = Array.from(row.querySelectorAll('input[type="checkbox"]:checked')).length;
+            if (checkedUsers > 0) {
+                const share = price / checkedUsers;
+                {% for user in users %}
+                if (row.querySelector(`td:nth-child(${getUserIndex('{{ user.username }}') + 3}) input`).checked) {
+                    userTotals['{{ user.username }}'] += share;
+                }
+                {% endfor %}
+            }
+        });
+
+        document.getElementById('totalPrice').innerText = totalPrice.toFixed(2);
+        {% for user in users %}
+        document.getElementById('total-{{ user.username }}').innerText = userTotals['{{ user.username }}'].toFixed(2);
+        {% endfor %}
+    }
+
+    function getUserIndex(username) {
+        return [{% for user in users %}'{{ user.username }}'{% if not forloop.last %},{% endif %}{% endfor %}].indexOf(username);
+    }
+
+    // Initial calculation and update
+    calculateTotals();
+    fetchUpdates();
+
+    // Poll for updates every 5 seconds
+    setInterval(fetchUpdates, 5000);
+    </script>
+</body>
+</html>
